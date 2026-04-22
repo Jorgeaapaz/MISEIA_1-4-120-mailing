@@ -219,6 +219,54 @@ Los únicos puertos relevantes son:
 
 ---
 
+## Seed de datos de prueba
+
+Script en `scripts/seed.ts`. Borra y recarga todas las colecciones cada vez que se ejecuta.
+
+```bash
+npx tsx scripts/seed.ts
+```
+
+### Datos cargados
+
+**Tenant:** `admin@acme.com` — Acme Corp
+
+**10 clientes** distribuidos en 4 tags:
+
+| Nombre           | Email                        | Tags                        | Ciudad      | Plan       |
+|------------------|------------------------------|-----------------------------|-------------|------------|
+| Ana García       | ana.garcia@example.com       | newsletter, vip             | Madrid      | pro        |
+| Pedro López      | pedro.lopez@example.com      | newsletter                  | Barcelona   | basic      |
+| María Sánchez    | maria.sanchez@example.com    | newsletter, vip             | Sevilla     | pro        |
+| Carlos Ruiz      | carlos.ruiz@example.com      | reactivacion                | Valencia    | basic      |
+| Lucía Martínez   | lucia.martinez@example.com   | newsletter, vip, beta       | Bilbao      | enterprise |
+| Javier Torres    | javier.torres@example.com    | reactivacion                | Zaragoza    | basic      |
+| Elena Fernández  | elena.fernandez@example.com  | newsletter, beta            | Málaga      | pro        |
+| Miguel Díaz      | miguel.diaz@example.com      | vip                         | Murcia      | pro        |
+| Sara Jiménez     | sara.jimenez@example.com     | newsletter                  | Alicante    | basic      |
+| David Moreno     | david.moreno@example.com     | reactivacion, vip           | Valladolid  | pro        |
+
+**3 plantillas** con HTML estilizado y variables Handlebars:
+
+| Nombre             | Asunto                              | Variables                   |
+|--------------------|-------------------------------------|-----------------------------|
+| Bienvenida         | Bienvenido/a a Acme, {{name}} 👋   | `name`, `ciudad`, `plan`    |
+| Newsletter Mensual | Novedades de abril, {{name}} 📬    | `name`, `ciudad`            |
+| Reactivación       | {{name}}, te echamos de menos 💙   | `name`, `plan`              |
+
+**1 campaña draft:** "Newsletter Abril 2026" — plantilla Newsletter Mensual, segmento `newsletter`, lista para enviar.
+
+### Acceso tras el seed
+
+```
+npm run dev
+→ http://localhost:3000/login
+→ Email: admin@acme.com
+→ Ver enlace mágico en http://localhost:8025 (MailHog UI)
+```
+
+---
+
 ## Resultados y conclusiones / Results & Conclusions
 
 ### Qué funcionó
