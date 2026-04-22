@@ -191,7 +191,7 @@ Los únicos puertos relevantes son:
 |--------|-------------------|
 | 3000   | Next.js (app)     |
 | 27017  | MongoDB           |
-| 1025   | MailHog SMTP      |
+| 1027   | MailHog SMTP      |
 | 8025   | MailHog UI (HTTP) |
 
 ---
