@@ -17,7 +17,7 @@ export default function NuevoClientePage() {
     setLoading(true)
     setError('')
     try {
-      let metadata: Record<string, string> = {}
+      const metadata: Record<string, string> = {}
       if (form.metadata.trim()) {
         form.metadata.split('\n').forEach((line) => {
           const [k, ...rest] = line.split(':')

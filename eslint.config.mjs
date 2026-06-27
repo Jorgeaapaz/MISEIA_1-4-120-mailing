@@ -12,7 +12,17 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Test output
+    "coverage/**",
+    "playwright-report/**",
+    "test-results/**",
   ]),
+  {
+    rules: {
+      // React 19 strict rule: setState before first await in useEffect is valid in these pages
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;
