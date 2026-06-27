@@ -1,0 +1,20 @@
+networks:
+  miseia-net:
+    external: true
+
+services:
+  mailing:
+    image: mailing-saas:latest
+    container_name: mailing
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mailing.rule=Host(`mailing.deviaaps.com`)"
+      - "traefik.http.routers.mailing.entrypoints=websecure"
+      - "traefik.http.routers.mailing.tls=true"
+      - "traefik.http.routers.mailing.tls.certresolver=cloudflare"
+      - "traefik.http.services.mailing.loadbalancer.server.port=3000"
+    networks:
+      - miseia-net

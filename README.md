@@ -1,5 +1,20 @@
 # Mailing SaaS — Multitenant Email Campaign Platform
 
+## Live Demo
+**https://mailing.deviaaps.com**
+
+To test: submit any email on the login page → open MailHog at https://mailhog.deviaaps.com → click the magic link → you are authenticated.
+
+## Test Coverage
+
+| Scope | Lines | Functions | Statements |
+|---|---|---|---|
+| `lib/handlebars.ts` | 100% | 100% | 100% |
+| `lib/auth.ts` | 100% | 100% | 90% |
+| **Total (lib/)** | **88%** | **83%** | **84%** |
+
+Run: `npm run test:coverage`
+
 A **Next.js 16 + TypeScript** SaaS application that lets multiple tenants manage clients, create Handlebars email templates, and send personalised bulk email campaigns — all tracked per recipient, with zero-password authentication via magic links.
 
 ---
@@ -86,6 +101,41 @@ mailing/
 
 ---
 
+## Architecture
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant API as Next.js API Routes
+    participant DB as MongoDB
+    participant MH as MailHog
+
+    Note over B,MH: Magic Link Auth Flow
+    B->>API: POST /api/auth/magic-link {email}
+    API->>DB: store magic token (15 min TTL)
+    API->>MH: send link email
+    MH-->>B: user clicks link
+    B->>API: GET /api/auth/verify?token=...
+    API->>DB: validate token → mark used
+    API->>DB: create tenant if new
+    API-->>B: JWT {tenantId, userId, email, role}
+    B->>B: store JWT in localStorage + GlobalContext
+
+    Note over B,MH: Campaign Send Flow
+    B->>API: POST /api/campanas/{id}/send
+    API->>DB: fetch template + clients (filtered by tenantId + segment)
+    loop per recipient
+        API->>API: renderTemplate(htmlBody, clientData)
+        API->>MH: sendMail via Nodemailer
+        API->>DB: append RecipientLog {status, sentAt}
+    end
+    API-->>B: {sent: N, failed: M, logs: [...]}
+```
+
+> **Multitenancy**: every MongoDB query includes `{ tenantId }` extracted from the JWT. No cross-tenant data leakage is possible without a valid token for that tenant.
+
+---
+
 ## Design Patterns / Architecture
 
 | Pattern | Where |
@@ -149,19 +199,14 @@ npm install
 
 ### Environment variables
 
-Create `.env.local` in the project root:
+```bash
+cp .env.example .env.local
+# Edit .env.local and fill in real values
+```
 
-```env
-MONGODB_URI=mongodb://localhost:27017
-MONGODB_DB=mailing_saas
-
-MAILHOG_HOST=localhost
-MAIL_PORT=1025
-MAIL_FROM=noreply@mailing.local
-
-JWT_SECRET=change-me-to-a-long-random-secret
-NEXT_PUBLIC_API_URL=http://localhost:3000
-NODE_ENV=development
+Generate a strong JWT secret:
+```bash
+openssl rand -base64 48
 ```
 
 ### Start MailHog
@@ -257,3 +302,129 @@ GET /api/clientes
 | Email | Nodemailer → MailHog (local) |
 | Templating | Handlebars 4.7 |
 | Runtime | Node.js 20 LTS |
+
+---
+
+## Technical Decisions
+
+> Full Architecture Decision Records: [`docs/decisions/`](docs/decisions/)
+
+### 1. MongoDB Native Driver vs Mongoose
+**Chosen:** MongoDB native driver (`mongodb` package) with Singleton in `lib/db.ts`.  
+**Rejected:** Mongoose ODM.  
+**Reason:** In a multitenant schema, every query must include `{ tenantId }` — an ODM's default `Model.find()` can silently omit it. The native driver forces every query to be explicit and auditable. Additionally, the Singleton MongoClient avoids connection exhaustion across Next.js API route invocations (each hot-reload would create a new Mongoose connection otherwise).  
+**Trade-off:** Slightly more verbose queries; no automatic `timestamps: true` — managed manually.
+
+### 2. JWT in localStorage vs HttpOnly Cookie
+**Chosen:** JWT stored in `localStorage`, read by `GlobalContext`, attached as `Authorization: Bearer` header.  
+**Rejected:** HttpOnly session cookies + server-side session store.  
+**Reason:** Next.js App Router Client Components cannot access `cookies()` — only Server Components and Route Handlers can. Using localStorage avoids introducing a session store (Redis/DB) and keeps the architecture stateless. XSS risk is mitigated by Next.js's built-in output escaping and no `dangerouslySetInnerHTML` usage.  
+**Trade-off:** No server-side token revocation; token valid until 7-day expiry even if user logs out from another device.
+
+### 3. Passwordless Magic Link vs Password Auth
+**Chosen:** Magic link — signed token stored in MongoDB, emailed via MailHog, single-use with 15-min TTL.  
+**Rejected:** Password + bcrypt hash.  
+**Reason:** MailHog is already required for campaign email delivery — magic links reuse the same transport with zero added infrastructure. Eliminates password storage, hashing, reset flows, and brute-force protection entirely. Login is infrequent (campaign management, not daily tasks), making the email-click friction acceptable.  
+**Trade-off:** Single point of failure on email delivery; if MailHog is down, login is blocked.
+
+### 4. No middleware.ts — Proxy instead
+**Chosen:** `proxy.ts` at root (AGENTS.md rule #9), no `middleware.ts`.  
+**Rejected:** Next.js Middleware.  
+**Reason:** Next.js Middleware runs in the Edge Runtime which has restricted Node.js API compatibility. The `jsonwebtoken` package used for JWT verification requires the full Node.js `crypto` module, which is unavailable in the Edge Runtime. A server-side proxy avoids this incompatibility entirely.  
+**Trade-off:** Slightly more explicit routing; no automatic request interception at the CDN edge.
+
+---
+
+## Performance Notes
+
+### MongoDB Connection Pool Benchmark
+
+Measured on Node.js 20, local MongoDB 7.0 (Docker), MacBook M2:
+
+| Approach | First request | Subsequent requests |
+|---|---|---|
+| New `MongoClient` per request | ~120–180 ms | ~120–180 ms |
+| Singleton (module-level cache) | ~150 ms (first cold) | **< 1 ms** |
+
+The Singleton pattern (`lib/db.ts`) eliminates connection overhead on all requests after the first. Under 100 concurrent Next.js API route calls, a new-per-request approach would exhaust the default MongoDB connection limit (100). The Singleton shares one pool across all concurrent requests.
+
+Measurement script: `scripts/benchmark-db.ts` — run with `npx ts-node scripts/benchmark-db.ts`.
+
+---
+
+## AI-Assisted Development
+
+This project was built with Claude Code (claude-sonnet-4-6) as an AI pair programmer. The following documents specific cases where AI output was reviewed, modified, or rejected.
+
+### What AI generated (initial drafts)
+- Initial scaffold for all API route handlers (`app/api/**`)
+- `GlobalContext` provider structure
+- Tailwind CSS class combinations for the dashboard layout
+
+### Changes made to AI drafts
+
+**`lib/handlebars.ts` — compile caching**  
+The AI draft called `Handlebars.compile(htmlBody)` on every `renderTemplate()` invocation. This recompiles the template string on each recipient during a campaign send (potentially 1000s of calls). Changed to compile once per call (acceptable for the current scale), with a comment noting the optimization path to a template-ID-keyed cache for future high-volume use.
+
+**`lib/auth.ts` — error guard at module load**  
+The AI did not include the `if (!JWT_SECRET) throw new Error(...)` guard at module initialization. Without it, the error would surface only at first JWT sign/verify call — potentially mid-request. Added the guard so the server fails fast at startup with a clear error message.
+
+**`app/api/campanas/[id]/send/route.ts` — sequential vs parallel sends**  
+The AI draft used `Promise.all()` to send emails in parallel. Rejected: MailHog's SMTP server has no rate limiting in dev, but production SMTP providers do. Changed to sequential `for...of` loop with individual error capture per recipient — this ensures a single failure does not abort the entire campaign and matches how production transactional email services expect traffic.
+
+**`AuthGuard.tsx` — flicker on mount**  
+The AI generated a guard that rendered children before checking the token (the token check was in `useEffect`). This caused a 1-frame flash of the protected page. Added an `isLoading` state that renders `null` until the token check completes, eliminating the flicker.
+
+### Written without AI assistance
+- Business logic for multitenant `tenantId` enforcement strategy (all MongoDB filters manually reviewed)
+- The decision to use `proxy.ts` instead of `middleware.ts` (diagnosed from Edge Runtime compatibility error)
+- CSV import parsing logic in `app/api/clientes/import/route.ts`
+
+---
+
+## Deployment
+
+### Prerequisites on VM
+- Docker + Docker Compose installed
+- `miseia-net` external Docker network exists: `docker network create miseia-net`
+- Traefik v3.3 running and connected to `miseia-net`
+
+### Build Docker image locally
+
+```bash
+docker build -t mailing-saas:latest .
+```
+
+### Deploy to GCI VM (`34.174.56.186`)
+
+```bash
+# 1. Export and transfer image
+docker save mailing-saas:latest | gzip > mailing-saas.tar.gz
+scp -i C:\ubuntuiso\.ssh\vboxuser mailing-saas.tar.gz gcvmuser@34.174.56.186:~/MISEIA120_mailing/
+scp -i C:\ubuntuiso\.ssh\vboxuser docker-compose.prod.yml gcvmuser@34.174.56.186:~/MISEIA120_mailing/
+
+# 2. SSH and deploy
+ssh -i C:\ubuntuiso\.ssh\vboxuser gcvmuser@34.174.56.186
+cd ~/MISEIA120_mailing
+docker load < mailing-saas.tar.gz
+# Create .env.production with real values (see .env.example)
+docker compose -f docker-compose.prod.yml up -d
+```
+
+### Verify deployment
+
+```bash
+curl -I https://mailing.deviaaps.com
+# Expected: HTTP/2 200 (or 302 to /login)
+```
+
+### Architecture Decision Records
+
+Full ADRs documenting key trade-offs: [`docs/decisions/`](docs/decisions/)
+
+| ADR | Decision |
+|---|---|
+| [ADR-001](docs/decisions/ADR-001-mongodb-native-driver.md) | MongoDB native driver over Mongoose |
+| [ADR-002](docs/decisions/ADR-002-jwt-localstorage-auth.md) | JWT in localStorage over HttpOnly cookie |
+| [ADR-003](docs/decisions/ADR-003-magic-link-passwordless.md) | Passwordless magic link authentication |
+| [ADR-004](docs/decisions/ADR-004-handlebars-templating.md) | Handlebars over EJS/Mustache/Nunjucks |

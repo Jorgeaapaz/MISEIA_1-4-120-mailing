@@ -1,17 +1,19 @@
 import jwt from 'jsonwebtoken'
 import type { JwtPayload } from './types'
 
-const JWT_SECRET = process.env.JWT_SECRET!
-
-if (!JWT_SECRET) throw new Error('Missing JWT_SECRET env variable')
+function getSecret(): string {
+  const s = process.env.JWT_SECRET
+  if (!s) throw new Error('Missing JWT_SECRET env variable')
+  return s
+}
 
 export function signJwt(payload: JwtPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' })
+  return jwt.sign(payload, getSecret(), { expiresIn: '7d' })
 }
 
 export function verifyJwt(token: string): JwtPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as JwtPayload
+    return jwt.verify(token, getSecret()) as JwtPayload
   } catch {
     return null
   }

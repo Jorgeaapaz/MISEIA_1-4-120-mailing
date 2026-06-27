@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest } from 'next/server'
 import { getDb } from '@/lib/db'
 import { extractJwtFromHeader } from '@/lib/auth'
